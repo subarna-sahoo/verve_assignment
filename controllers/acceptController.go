@@ -2,11 +2,16 @@ package controllers
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"verve_assignment/models"
 
 	"github.com/gin-gonic/gin"
 )
+
+var httpClient = &http.Client{}
+var workerPool = make(chan struct{}, 50) // Limit concurrency to 50 workers
 
 // HandlePing handles the ping request for root API
 func HandlePing(c *gin.Context) {
@@ -50,45 +55,38 @@ func HandleAccept(c *gin.Context) {
 	id := c.Query("id")
 	endpoint := c.Query("endpoint")
 
-	fmt.Println(id, endpoint)
-	// if id == "" {
-	// 	c.JSON(http.StatusBadRequest, gin.H{"status": "failed", "error": "id is required"})
-	// 	return
-	// }
-
-	// // Process the request through service
-	// status := services.ProcessRequest(id, endpoint)
-
-	// // Send response based on the status
-	// if status == "ok" {
-	// 	c.String(http.StatusOK, "ok")
-	// } else {
-	// 	c.JSON(http.StatusInternalServerError, gin.H{"status": "failed", "error": "server error"})
-	// }
-
-	type Response struct {
-		Status  string
-		Message string
-		Data    interface{}
-	}
-
-	// If ID is missing, return an error response
 	if id == "" {
-		response := Response{
-			Status:  "failed",
-			Message: "id is required",
-			Data:    nil,
-		}
-		c.JSON(http.StatusBadRequest, response)
+		c.String(http.StatusBadRequest, "failed")
 		return
 	}
 
-	response := Response{
-		Status:  "ok",
-		Message: "success",
-		Data:    id, // Send the ID as part of the response
+	err := models.StoreRequestID(id)
+	if err != nil {
+		log.Println("Error storing ID in Redis:", err)
+		c.String(http.StatusInternalServerError, "failed")
+		return
 	}
 
-	// Return the response with status OK
-	c.JSON(http.StatusOK, response)
+	if endpoint != "" {
+		go sendPostRequest(endpoint)
+	}
+
+	c.String(http.StatusOK, "ok")
+}
+
+// sendPostRequest sends an async POST request without blocking the main request
+func sendPostRequest(endpoint string) {
+	workerPool <- struct{}{}        // Acquire a worker slot
+	defer func() { <-workerPool }() // Release the slot
+
+	// Fire HTTP POST request
+	resp, err := httpClient.Post(endpoint, "application/json", nil)
+	if err != nil {
+		log.Println("Error sending POST request:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Log response status
+	log.Printf("POST to %s responded with status: %d\n", endpoint, resp.StatusCode)
 }

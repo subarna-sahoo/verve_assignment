@@ -1,28 +1,47 @@
 package models
 
 import (
+	"context"
+	"fmt"
 	"time"
+	"verve_assignment/utils"
 
-	"github.com/go-redis/redis/v8"
-	"golang.org/x/net/context"
+	"github.com/redis/go-redis/v9"
 )
 
-var redisClient *redis.Client
-var ctx = context.Background()
+// AddRequestIDToRedis stores the request ID in a Redis sorted set with the current timestamp
+func StoreRequestID(reqID string) error {
+	ctx := context.Background()
+	timestamp := time.Now().Unix() // Current Unix timestamp
 
-func InitRedis() {
-	// Redis client initialization
-	redisClient = redis.NewClient(&redis.Options{
-		Addr: "redis:6379", // Adjust if necessary
-	})
+	// Use ZAdd with redis.Z from v9 package
+	_, err := utils.RedisClient.ZAdd(ctx, "req:ids", redis.Z{
+		Score:  float64(timestamp),
+		Member: reqID,
+	}).Result()
+
+	if err != nil {
+		return fmt.Errorf("failed to store request ID in Redis: %w", err)
+	}
+
+	return nil
 }
 
-func CheckUniqueID(id string) (bool, error) {
-	_, err := redisClient.Get(ctx, id).Result()
-	if err == redis.Nil {
-		// ID is unique
-		redisClient.Set(ctx, id, "1", time.Minute)
-		return true, nil
+// GetUniqueRequestIDsFromLastMinute fetches all unique request IDs received in the last minute
+func GetUniqueRequestIDsFromLastMinute() ([]string, error) {
+	ctx := context.Background()
+	timestamp := time.Now().Unix() // Current Unix timestamp
+	lastMinute := timestamp - 60   // One minute ago
+
+	// Use ZRangeByScore to fetch all request IDs in the last minute
+	result, err := utils.RedisClient.ZRangeByScore(ctx, "req:ids", &redis.ZRangeBy{
+		Min: fmt.Sprintf("%d", lastMinute),
+		Max: fmt.Sprintf("%d", timestamp),
+	}).Result()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch request IDs: %w", err)
 	}
-	return false, err
+
+	return result, nil
 }

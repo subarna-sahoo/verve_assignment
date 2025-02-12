@@ -3,11 +3,15 @@ package main
 import (
 	"log"
 	"verve_assignment/routes" // Correct import path
+	"verve_assignment/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	// Initialize Redis once
+	utils.InitRedis()
+
 	// Initialize Gin
 	r := gin.Default()
 

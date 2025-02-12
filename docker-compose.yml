@@ -1,14 +1,40 @@
-version: '3.8'
-
 services:
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=your_secure_password
+    command: ["redis-server", "--requirepass", "your_secure_password"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "your_secure_password", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"    # AMQP protocol port for communication
+      - "15672:15672"  # Management UI port
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: .
     container_name: go_app1
     ports:
       - "8080:5000"
     depends_on:
-      - redis
-      - rabbitmq
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   backend2:
     build: .
@@ -16,14 +42,10 @@ services:
     ports:
       - "8081:5000"
     depends_on:
-      - redis
-      - rabbitmq
-
-  redis:
-    image: redis:latest
-    container_name: redis
-    ports:
-      - "6379:6379"
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   nginx:
     image: nginx:latest
@@ -35,10 +57,3 @@ services:
     depends_on:
       - backend
       - backend2
-
-  rabbitmq:
-    image: rabbitmq:management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
