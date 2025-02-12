@@ -24,8 +24,8 @@ RUN apt update && apt install -y ca-certificates
 # Copy the built binary from the builder stage
 COPY --from=builder /app/verve_assignment .
 
-# Expose the port
-EXPOSE 8080
+# Expose the port | outside
+# EXPOSE 5000
 
 # Run the binary when the container starts
 CMD ["./verve_assignment"]
