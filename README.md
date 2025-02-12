@@ -33,8 +33,7 @@ This project provides a high-performance REST service to process unique requests
 4. **Dockerize the application:**
 
     ```bash
-    docker build -t verve_assignment .
-    docker run -p 8080:8080 verve_assignment
+    docker-compose up --build
     ```
 
 ## Endpoints
