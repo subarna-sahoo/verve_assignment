@@ -2,7 +2,9 @@ package main
 
 import (
 	"log"
-	"verve_assignment/routes" // Correct import path
+	"time"
+	"verve_assignment/jobs"
+	"verve_assignment/routes"
 	"verve_assignment/utils"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +13,12 @@ import (
 func main() {
 	// Initialize Redis once
 	utils.InitRedis()
+
+	// Initialize RabbitMQ
+	utils.InitRabbitMQ()
+	defer utils.CloseRabbitMQ()
+
+	go jobs.StartJobScheduler(time.Minute, jobs.UniqueRequestJob)
 
 	// Initialize Gin
 	r := gin.Default()

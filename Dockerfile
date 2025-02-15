@@ -1,5 +1,5 @@
 # Build Stage
-FROM golang:1.23.6 AS builder
+FROM golang:1.24 AS builder
 WORKDIR /app
 
 # Copy the Go modules manifests
