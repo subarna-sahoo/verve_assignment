@@ -66,7 +66,7 @@ This project provides a high-performance REST service to process unique requests
 
 ## Endpoints
 
-- `GET /api/ping`: Health check.
+- `GET /`: Health check.
 - `GET /api/verve/accept?id=<id>&endpoint=<endpoint>`: Accepts the request with the provided ID and optional `endpoint` as query, processes the request, and ensures ID uniqueness.
 - `GET /api/verve/unique-requests`: Returns the count of unique requests received in the last minute.
 
