@@ -16,6 +16,8 @@ This project provides a high-performance REST service to process unique requests
     ├── docker-compose.yml
     ├── go.mod
     ├── go.sum
+    ├── jobs
+    │   └── jobScheduler.go
     ├── main.go
     ├── models
     │   └── redisModel.go
@@ -24,6 +26,7 @@ This project provides a high-performance REST service to process unique requests
     │   └── router.go
     └── utils
         ├── logger.go
+        ├── rabbitMQClient.go
         └── redisClient.go
 ```
 ## Setup
