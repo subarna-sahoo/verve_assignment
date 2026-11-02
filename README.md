@@ -1,91 +1,76 @@
-# Verve Assignment
+# Verve Assignment: Unique Request Counter
 
-## Overview
+A high-throughput REST service in **Go (Gin)** that accepts requests carrying an `id` and counts how many **unique** IDs arrive each minute. It keeps counts correct even when several instances run behind a load balancer. Every minute it publishes the count to **RabbitMQ**.
 
-This project provides a high-performance REST service to process unique requests with the following features:
+The original brief is in [ASSIGNMENT.MD](ASSIGNMENT.MD).
 
-## Project Structure
-```bash
-    ├── ASSIGNMENT.MD
-    ├── Dockerfile
-    ├── LICENSE
-    ├── README.md
-    ├── controllers
-    │   ├── acceptController.go
-    │   └── uniqueRequestsController.go
-    ├── docker-compose.yml
-    ├── go.mod
-    ├── go.sum
-    ├── jobs
-    │   └── jobScheduler.go
-    ├── main.go
-    ├── models
-    │   └── redisModel.go
-    ├── nginx.conf
-    ├── routes
-    │   └── router.go
-    └── utils
-        ├── logger.go
-        ├── rabbitMQClient.go
-        └── redisClient.go
+## Architecture
+
 ```
-## Setup
+            ┌──────────┐
+ client ──▶ │  Nginx   │  :80  (round-robin)
+            └────┬─────┘
+          ┌──────┴──────┐
+          ▼             ▼
+     go_app1:5000   go_app2:5000      Gin service (2 replicas)
+          │             │
+          └──────┬──────┘
+                 ▼
+     Redis sorted set "req:ids"       shared dedup across instances
+                 │
+     every minute: count IDs seen in the last 60 s
+                 ▼
+     RabbitMQ queue "unique_requests"
+```
 
-1. **Clone the repository:**
+**Design choices**
 
-    ```bash
-    git clone https://github.com/subarna-sahoo/verve_assignment.git
-    cd verve_assignment
-    ```
-
-2. **Install dependencies:**
-
-    ```bash
-    go mod tidy
-    ```
-
-3. **Run the application:**
-
-    To run the application locally:
-
-    ```bash
-    go run main.go
-    ```
-
-    This will start the server on `http://localhost:5000`
-
-4. **Dockerize the application:**
-
-    To run the application with Docker:
-
-    ```bash
-    docker-compose up --build
-    ```
-
-    This will spin up the Redis, RabbitMQ, application and Nginx in containers.
+- **Deduplication across instances**: each ID is written to a Redis **sorted set** (`ZADD req:ids <unix_ts> <id>`). A set holds each member only once, so two instances receiving the same ID at the same moment still count it once.
+- **Per-minute count**: a background ticker runs `ZRANGEBYSCORE` over the last 60 seconds and takes the length of the result.
+- **Streaming instead of a log file** (Extension 2): the count is published to RabbitMQ, where any consumer can process it.
+- **Non-blocking callbacks**: when `endpoint` is provided, the POST to it runs in a goroutine through a bounded worker pool, so `/accept` returns immediately. The response status code is logged.
 
 ## Endpoints
 
-- `GET /`: Health check.
-- `GET /api/verve/accept?id=<id>&endpoint=<endpoint>`: Accepts the request with the provided ID and optional `endpoint` as query, processes the request, and ensures ID uniqueness.
-- `GET /api/verve/unique-requests`: Returns the count of unique requests received in the last minute.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Health check. Returns the IP of the instance that served it, which is handy for seeing load balancing at work. |
+| `GET` | `/api/verve/accept?id=<int>&endpoint=<url>` | Records `id`. Returns `ok` or `failed`. If `endpoint` is set, sends it a POST. |
+| `GET` | `/api/verve/unique-requests` | Debug endpoint: unique IDs seen in the last minute. |
 
-## Redis
+## Running
 
-Ensure Redis is running locally or configure the connection in the `models/redis.go` file. The application uses Redis to store the request IDs and ensure uniqueness.
+The service connects to Redis at `redis:6379` and RabbitMQ at `rabbitmq:5672` (hostnames from Docker Compose), so the simplest way to run everything is:
 
-## RabbitMQ Integration
+```bash
+docker-compose up --build
+```
 
-RabbitMQ is used to send the unique request count for the last minute. This allows for real-time processing of the request count, such as logging or forwarding to other services.
+This starts Redis, RabbitMQ (management UI at <http://localhost:15672>, login `guest`/`guest`), two app instances (`:8080` and `:8081`) and Nginx on `:80`.
 
-### Steps to Set Up RabbitMQ:
-1. RabbitMQ is configured in the `docker-compose.yml` file. It runs as a service and is accessible at the default AMQP port `5672`.
-2. The `PublishToRabbitMQ` function sends the count of unique requests to the `unique_requests` queue every minute.
-3. We can setup a worker to listens to this queue and processes the messages.
+```bash
+curl "http://localhost/api/verve/accept?id=42"
+curl "http://localhost/api/verve/unique-requests"
+```
 
+To run the Go service on its own (`go run main.go`, port 5000), first change the Redis and RabbitMQ addresses in `utils/redisClient.go` and `utils/rabbitMQClient.go` to `localhost`.
 
-## Nginx Load Balancing
+## Project structure
 
-Nginx is used to load balance between multiple instances of the backend application. It ensures that the incoming requests are evenly distributed across the available backend instances.
+```
+main.go                       Starts Redis, RabbitMQ, the minute job and the Gin server
+routes/router.go              Route table
+controllers/                  /accept, /unique-requests and health handlers
+models/redisModel.go          Store an ID, fetch IDs from the last minute
+jobs/jobScheduler.go          Ticker that publishes the count every minute
+utils/                        Redis and RabbitMQ clients, logger
+Dockerfile, docker-compose.yml, nginx.conf
+```
 
-The Nginx configuration uses an `upstream` directive to define two backend servers (e.g., `go_app1` and `go_app2`). These instances will process requests in parallel and share the load.
+## Tech stack
+
+Go 1.24 · Gin · Redis (go-redis v9) · RabbitMQ (amqp) · Nginx · Docker Compose
+
+## License
+
+MIT. See [LICENSE](LICENSE).
